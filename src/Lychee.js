@@ -2,6 +2,7 @@ const fs = require('fs');
 const got = require('got');
 const FormData = require('form-data');
 const { CookieJar } = require('tough-cookie');
+const { Limiter } = require('./utilities');
 
 module.exports = class Lychee {
   constructor(host, apiKey) {
@@ -69,7 +70,8 @@ module.exports = class Lychee {
 
     const files = [];
     const folders = [];
-    for (let item of list) {
+
+    list.forEach(item => {
       item = `${dirpath}/${item}`;
       const stat = fs.statSync(item);
       if (stat.isDirectory()) {
@@ -77,22 +79,20 @@ module.exports = class Lychee {
       } else {
         files.push(item);
       }
-    }
+    });
 
-    for (const file of files) {
-      await this.upload(file, albumId);
-    }
+    // Process files concurrently
+    await Limiter(10, files.map(file => () => this.upload(file, albumId)));
 
-    for (const folder of folders) {
-      await this.iterateDirectory(folder, albumId);
-    }
+    // Process remaining folders sequentially
+    await folders.reduce((previous, folder) => previous.then(() => this.iterateDirectory(folder, albumId)), Promise.resolve());
   }
 
   walk(dir, results) {
     results = results || [];
 
     const list = fs.readdirSync(dir);
-    for (let file of list) {
+    list.forEach(file => {
       file = path.resolve(dir, file);
       const stat = fs.statSync(file);
       if (stat.isDirectory()) {
@@ -100,7 +100,7 @@ module.exports = class Lychee {
       } else {
         results.push(file);
       }
-    }
+    });
 
     return results;
   }
